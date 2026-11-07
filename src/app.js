@@ -118,7 +118,7 @@ export function createApp({ cfg, db, googleVerifier, playVerifier, provider }) {
     }
     if (!ai) throw httpError(503, 'provider_not_configured');
 
-    const reserve = db.reserve(user.id, cfg.formatReserveMicros, {
+    const reserve = db.reserve(user.id, cfg.formatChargeMicros, {
       userCapMicros: cfg.userDailyCapMicros,
       globalCapMicros: cfg.globalDailyCapMicros,
     }, Date.now());
@@ -135,13 +135,13 @@ export function createApp({ cfg, db, googleVerifier, playVerifier, provider }) {
       throw e;
     }
 
-    const actualMicros = outcome.costMicros !== null && outcome.costMicros !== undefined
-      ? outcome.costMicros
-      : cfg.formatFlatMicros;
-    const settled = db.settle(reserve.reservationId, actualMicros, outcome.usage, cfg.formatReserveMicros, Date.now());
+    // Credits model: a successful format call costs a flat 1 credit
+    // (formatChargeMicros), regardless of the provider's own reported
+    // cost — that cost is kept only as usage metadata on the ledger entry.
+    const settled = db.settle(reserve.reservationId, cfg.formatChargeMicros, outcome.usage, cfg.formatChargeMicros, Date.now());
     if (settled.discrepancy) {
       // Amounts only — never the text, tokens, or keys.
-      console.error(`format settle discrepancy user=${user.id} reported=${actualMicros} charged=${settled.chargedMicros}`);
+      console.error(`format settle discrepancy user=${user.id} expected=${cfg.formatChargeMicros} charged=${settled.chargedMicros}`);
     }
     sendJson(res, 200, { result: outcome.result, balanceMicros: settled.balanceMicros, chargedMicros: settled.chargedMicros });
   }

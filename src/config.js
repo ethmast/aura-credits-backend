@@ -1,7 +1,7 @@
 /**
  * All configuration comes from environment variables. Money is integer
- * microdollars everywhere (1 USD = 1,000,000 micros); no floats for money
- * anywhere past this file.
+ * micros everywhere (1 credit = 10,000 micros; the ledger stays in micros,
+ * so dollar amounts never appear as floats past this file).
  */
 
 function str(env, name, fallback) {
@@ -31,7 +31,7 @@ function parseProductCredits(env) {
   const map = {};
   for (const [productId, micros] of Object.entries(parsed)) {
     if (!Number.isInteger(micros) || micros <= 0) {
-      throw new Error(`PRODUCT_CREDITS_JSON: value for "${productId}" must be a positive integer (microdollars)`);
+      throw new Error(`PRODUCT_CREDITS_JSON: value for "${productId}" must be a positive integer (micros)`);
     }
     map[productId] = micros;
   }
@@ -52,17 +52,21 @@ export function loadConfig(env = process.env) {
     sessionSecret: str(env, 'SESSION_SECRET', ''),
     sessionTtlSeconds: int(env, 'SESSION_TTL_DAYS', 30) * 24 * 60 * 60,
 
-    starterGrantMicros: int(env, 'STARTER_GRANT_MICROS', 100_000),
+    // 1,000 credits (1 credit = 10,000 micros).
+    starterGrantMicros: int(env, 'STARTER_GRANT_MICROS', 10_000_000),
 
     providerBaseUrl: str(env, 'PROVIDER_BASE_URL', '').replace(/\/+$/, ''),
     providerApiKey: str(env, 'PROVIDER_API_KEY', ''),
     providerModel: str(env, 'PROVIDER_MODEL', ''),
     providerTimeoutMs: int(env, 'PROVIDER_TIMEOUT_MS', 20_000),
 
-    formatReserveMicros: int(env, 'FORMAT_RESERVE_MICROS', 5_000),
-    formatFlatMicros: int(env, 'FORMAT_FLAT_MICROS', 1_000),
-    userDailyCapMicros: int(env, 'USER_DAILY_CAP_MICROS', 200_000),
-    globalDailyCapMicros: int(env, 'GLOBAL_DAILY_CAP_MICROS', 2_000_000),
+    // Flat charge per successful /format call: exactly 1 credit. The same
+    // amount is reserved (held) before the provider call and settled on
+    // success; a failed provider call releases the hold uncharged.
+    formatChargeMicros: int(env, 'FORMAT_CHARGE_MICROS', 10_000),
+    // Daily caps in micros: 250 credits per user, 5,000 credits global.
+    userDailyCapMicros: int(env, 'USER_DAILY_CAP_MICROS', 2_500_000),
+    globalDailyCapMicros: int(env, 'GLOBAL_DAILY_CAP_MICROS', 50_000_000),
 
     playPackageName: str(env, 'PLAY_PACKAGE_NAME', ''),
     googleServiceAccountJson: str(env, 'GOOGLE_SERVICE_ACCOUNT_JSON', ''),

@@ -14,9 +14,9 @@ export function testConfig(overrides = {}) {
     port: 0,
     dataDir: dir,
     sessionSecret: 'test-session-secret',
-    starterGrantMicros: 100_000,
+    starterGrantMicros: 10_000_000,
     googleWebClientId: 'test-web-client-id',
-    productCredits: { credits_099: 1_000_000 },
+    productCredits: { credits_099: 150_000_000 },
   }, overrides);
   return cfg;
 }

@@ -39,7 +39,8 @@ export function createProvider(cfg, fetchImpl = fetch) {
     /**
      * Resolves to { result, costMicros (integer | null), usage (raw | null) }.
      * costMicros is the provider-reported cost when the API reports one
-     * (OpenRouter usage.cost, in USD); null means "charge the flat rate".
+     * (OpenRouter usage.cost, in USD). It is informational only — users are
+     * charged a flat 1 credit per successful call, never the provider cost.
      */
     async format(text) {
       const controller = new AbortController();

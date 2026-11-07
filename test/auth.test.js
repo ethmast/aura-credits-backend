@@ -60,17 +60,17 @@ test('valid Google ID token creates the user, grants starter once, session works
   const first = await api(base, 'POST', '/auth/google', { body: { idToken } });
   assert.equal(first.status, 200);
   assert.equal(first.json.isNewUser, true);
-  assert.equal(first.json.balanceMicros, 100_000);
+  assert.equal(first.json.balanceMicros, 10_000_000);
   assert.ok(first.json.sessionToken);
 
   const bal = await api(base, 'GET', '/balance', { token: first.json.sessionToken });
   assert.equal(bal.status, 200);
-  assert.equal(bal.json.balanceMicros, 100_000);
+  assert.equal(bal.json.balanceMicros, 10_000_000);
 
   const second = await api(base, 'POST', '/auth/google', { body: { idToken } });
   assert.equal(second.status, 200);
   assert.equal(second.json.isNewUser, false);
-  assert.equal(second.json.balanceMicros, 100_000); // no second starter grant
+  assert.equal(second.json.balanceMicros, 10_000_000); // no second starter grant
 });
 
 test('tampered, expired, and wrong-audience tokens are rejected with 401', async (t) => {

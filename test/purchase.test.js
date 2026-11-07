@@ -28,14 +28,14 @@ test('verified purchase grants once; replay is idempotent', async (t) => {
   const first = await api(base, 'POST', '/purchase/verify', { token, body: { productId: 'credits_099', purchaseToken: 'tok-1' } });
   assert.equal(first.status, 200);
   assert.equal(first.json.granted, true);
-  assert.equal(first.json.grantedMicros, 1_000_000);
-  assert.equal(first.json.balanceMicros, 1_000_000);
+  assert.equal(first.json.grantedMicros, 150_000_000);
+  assert.equal(first.json.balanceMicros, 150_000_000);
 
   const replay = await api(base, 'POST', '/purchase/verify', { token, body: { productId: 'credits_099', purchaseToken: 'tok-1' } });
   assert.equal(replay.status, 200);
   assert.equal(replay.json.granted, false);
   assert.equal(replay.json.alreadyGranted, true);
-  assert.equal(replay.json.balanceMicros, 1_000_000); // unchanged
+  assert.equal(replay.json.balanceMicros, 150_000_000); // unchanged
 });
 
 test('uncompleted purchase and unknown product grant nothing', async (t) => {

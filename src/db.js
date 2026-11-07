@@ -8,13 +8,14 @@ import Database from 'better-sqlite3';
  * check-then-write inside one transaction cannot interleave with another
  * request's synchronous section.
  *
- * Money is integer microdollars. The ledger is append-only; users.balance_micros
- * is a cached balance updated in the SAME transaction as every ledger insert.
+ * Money is integer micros (1 credit = 10,000 micros). The ledger is
+ * append-only; users.balance_micros is a cached balance updated in the
+ * SAME transaction as every ledger insert.
  *
  * Format-call flow uses reservations: reserve() checks balance + daily caps
- * and records an outstanding hold; settle() converts the hold into a
- * 'format_charge' ledger entry for the actual cost. Holds live in their own
- * table (they are not ledger entries until settled).
+ * and records an outstanding hold of 1 credit; settle() converts the hold
+ * into a 'format_charge' ledger entry for the flat 1-credit charge. Holds
+ * live in their own table (they are not ledger entries until settled).
  */
 
 export function dayStartUtcMs(nowMs) {
@@ -179,7 +180,7 @@ class Store {
   }
 
   /**
-   * Convert a hold into a format_charge for the actual cost. The charge is
+   * Convert a hold into a format_charge. The charge is
    * floored so the balance never drops below -floorBelowZeroMicros (the
    * reserve amount): if the provider reports a cost higher than the user's
    * balance plus that floor, we under-collect and flag the discrepancy.

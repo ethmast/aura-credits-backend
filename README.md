@@ -22,9 +22,10 @@ service warm with light pings while listening).
 - **Data:** SQLite at `$DATA_DIR/aura.db`. Append-only ledger
   (`starter_grant`, `purchase_grant`, `format_charge`); the user's balance
   is a cached column updated in the same transaction as each ledger
-  insert. Format calls place a **reservation** (hold) first, then settle
-  against the provider's actual reported cost.
-- **Money:** integer microdollars everywhere (1 USD = 1,000,000). No
+  insert. Format calls place a **reservation** (hold) of 1 credit first,
+  then settle a flat 1-credit charge on success (a failed provider call
+  releases the hold uncharged).
+- **Money:** integer micros everywhere (1 credit = 10,000 micros). No
   floats for money.
 - **Auth:** the app sends a Google ID token once; the backend verifies it
   against Google's JWKS (RS256 signature, issuer, audience, expiry) and
@@ -50,6 +51,23 @@ All errors are JSON `{error: string}` with a reasonable HTTP status.
 Request bodies are capped (16 KB default). Tokens, keys, and request
 bodies are never logged.
 
+## Pricing model
+
+The unit sold and spent is the **credit** — it is deliberately not a
+dollar amount, so a balance never implies a cash value.
+
+- The `credits_099` pack costs **$0.99** and grants **15,000 credits** —
+  15,000 lookups.
+- Each successful `/format` lookup costs exactly **1 credit** (flat,
+  regardless of the provider's own per-call cost).
+- New accounts get **1,000 free starter credits**, exactly once.
+- Daily caps: **250 credits per user** and **5,000 credits globally**
+  (UTC day), enforced by the ledger before any provider spend.
+
+Internally the ledger counts micros (1 credit = 10,000 micros): the pack
+grants 150,000,000 micros, the starter grant is 10,000,000 micros, and a format
+call reserves and settles 10,000 micros.
+
 ## Environment variables
 
 See `.env.example` for the annotated list. The important ones:
@@ -60,10 +78,9 @@ See `.env.example` for the annotated list. The important ones:
 | `DATA_DIR` | Directory for `aura.db`. Point at the mounted volume. |
 | `GOOGLE_WEB_CLIENT_ID` | OAuth web client ID; the audience Google ID tokens must carry. |
 | `SESSION_SECRET` | HMAC secret for session JWTs. Set a stable random value. |
-| `STARTER_GRANT_MICROS` | One-time new-account grant (default `100000` = $0.10). |
-| `FORMAT_RESERVE_MICROS` | Per-call hold required before a format call (default `5000`). |
-| `FORMAT_FLAT_MICROS` | Per-call charge when the provider reports no cost (default `1000`). |
-| `USER_DAILY_CAP_MICROS` / `GLOBAL_DAILY_CAP_MICROS` | Daily spend caps (defaults $0.20 / $2.00). |
+| `STARTER_GRANT_MICROS` | One-time new-account grant (default `10000000` = 1,000 credits). |
+| `FORMAT_CHARGE_MICROS` | Flat charge per successful format call, also the amount reserved before it (default `10000` = 1 credit). |
+| `USER_DAILY_CAP_MICROS` / `GLOBAL_DAILY_CAP_MICROS` | Daily spend caps (defaults 250 credits / 5,000 credits). |
 | `PROVIDER_BASE_URL` / `PROVIDER_API_KEY` / `PROVIDER_MODEL` | OpenAI-compatible provider used for format calls (e.g. OpenRouter). |
 | `PLAY_PACKAGE_NAME` | Android package name, e.g. `com.aura.verselink`. |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Full service-account JSON for the Play Developer API. |
