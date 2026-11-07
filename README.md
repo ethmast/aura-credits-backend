@@ -68,6 +68,20 @@ Internally the ledger counts micros (1 credit = 10,000 micros): the pack
 grants 150,000,000 micros, the starter grant is 10,000,000 micros, and a format
 call reserves and settles 10,000 micros.
 
+### Starter grant abuse protection
+
+The starter grant is once per **Google account**, not once per account
+record. When a starter grant is applied, the backend writes a tombstone
+row containing only an HMAC-SHA256 hash of the account's Google `sub`
+(keyed with the session secret) and the grant date. Account deletion
+removes the user, their balance, ledger, purchases, and reservations —
+but never the tombstone — so deleting an account and signing up again
+with the same Google account creates a fresh account with **no** starter
+grant. The hash is one-way (it cannot be reversed into the Google
+identity) and is retained solely to prevent starter-grant farming. On
+boot, an idempotent backfill adds tombstones for accounts that received
+a starter grant before this protection existed.
+
 ## Environment variables
 
 See `.env.example` for the annotated list. The important ones:

@@ -56,6 +56,14 @@ export function createApp({ cfg, db, googleVerifier, playVerifier, provider }) {
   const play = playVerifier !== undefined ? playVerifier : createPlayVerifier(cfg);
   const ai = provider !== undefined ? provider : createProvider(cfg);
 
+  // Starter-grant tombstones: key the claim hashes with the session secret
+  // and backfill claims for accounts that predate tombstones. Idempotent —
+  // safe on every boot.
+  if (db && typeof db.setClaimSecret === 'function') {
+    db.setClaimSecret(cfg.sessionSecret);
+    db.backfillStarterClaims();
+  }
+
   function requireSession(req) {
     const header = req.headers.authorization || '';
     const m = /^Bearer (.+)$/.exec(header);

@@ -16,7 +16,22 @@ import Database from 'better-sqlite3';
  * and records an outstanding hold of 1 credit; settle() converts the hold
  * into a 'format_charge' ledger entry for the flat 1-credit charge. Holds
  * live in their own table (they are not ledger entries until settled).
+ *
+ * Starter-grant tombstones: the starter grant is once per GOOGLE ACCOUNT,
+ * not once per account record — otherwise deleting the account and signing
+ * up again would re-grant it forever. When a starter grant is applied, a
+ * row is written to starter_claims in the SAME transaction, holding only
+ * an HMAC-SHA256 hash of the Google sub (keyed with the session secret).
+ * deleteUser never touches starter_claims, so the claim survives account
+ * deletion while every piece of actual user data is removed. The hash is
+ * one-way: it cannot be reversed into the sub, and it is never logged or
+ * returned by the API.
  */
+
+/** One-way tombstone key for a Google account's starter claim. */
+export function starterClaimHash(secret, googleSub) {
+  return crypto.createHmac('sha256', secret).update(`aura-starter-claim:v1:${googleSub}`).digest('hex');
+}
 
 export function dayStartUtcMs(nowMs) {
   const d = new Date(nowMs);
@@ -65,6 +80,10 @@ export function openDb(dataDir) {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_reservations_user ON reservations(user_id, settled);
+    CREATE TABLE IF NOT EXISTS starter_claims (
+      claim_hash TEXT PRIMARY KEY,
+      granted_at INTEGER NOT NULL
+    );
   `);
   return new Store(db);
 }
@@ -72,6 +91,52 @@ export function openDb(dataDir) {
 class Store {
   constructor(db) {
     this.db = db;
+    // Secret used to hash starter-claim tombstones. Set by the app layer
+    // (createApp) from the session secret. Until set, claim recording and
+    // enforcement are skipped (legacy behavior for direct store use).
+    this.claimSecret = null;
+  }
+
+  /** Wire the tombstone secret (the app's session secret). */
+  setClaimSecret(secret) {
+    this.claimSecret = secret || null;
+  }
+
+  /** Has this Google account already claimed its starter grant — ever,
+   *  including before a since-deleted account? */
+  hasStarterClaim(googleSub) {
+    if (!this.claimSecret) return false;
+    const row = this.db
+      .prepare('SELECT 1 AS x FROM starter_claims WHERE claim_hash = ?')
+      .get(starterClaimHash(this.claimSecret, googleSub));
+    return !!row;
+  }
+
+  /**
+   * One-time, idempotent backfill: every existing user who already
+   * received a starter grant (identified by their 'starter_grant' ledger
+   * entries) gets a tombstone, so the once-per-Google-account rule covers
+   * accounts created before tombstones existed. Returns the number of
+   * claims inserted; re-running inserts nothing.
+   */
+  backfillStarterClaims() {
+    if (!this.claimSecret) return 0;
+    const rows = this.db.prepare(`
+      SELECT DISTINCT u.google_sub AS sub, MIN(l.created_at) AS granted_at
+      FROM ledger l JOIN users u ON u.id = l.user_id
+      WHERE l.type = 'starter_grant'
+      GROUP BY u.google_sub
+    `).all();
+    const insert = this.db.prepare('INSERT OR IGNORE INTO starter_claims (claim_hash, granted_at) VALUES (?, ?)');
+    const run = this.db.transaction(() => {
+      let inserted = 0;
+      for (const row of rows) {
+        const info = insert.run(starterClaimHash(this.claimSecret, row.sub), row.granted_at);
+        inserted += info.changes;
+      }
+      return inserted;
+    });
+    return run.immediate();
   }
 
   _applyLedger(userId, type, amountMicros, { ref = null, meta = null } = {}, now) {
@@ -85,8 +150,13 @@ class Store {
     return newBalance;
   }
 
-  /** Find-or-create by Google sub. A new user gets the starter grant
-   *  exactly once, in the same transaction that creates the user. */
+  /** Find-or-create by Google sub. A new user gets the starter grant in
+   *  the same transaction that creates the user — but only if this Google
+   *  account has never claimed it: the tombstone check and the claim
+   *  insert happen inside that same transaction, so a grant can never be
+   *  applied without its claim (or vice versa). A re-created account whose
+   *  claim already exists (i.e. the account was deleted and signed up
+   *  again) is created with balance 0 and no grant. */
   findOrCreateUser(googleSub, email, starterMicros, now) {
     const existing = this.db.prepare('SELECT * FROM users WHERE google_sub = ?').get(googleSub);
     if (existing) {
@@ -97,12 +167,22 @@ class Store {
       return { user: existing, isNewUser: false };
     }
     const create = this.db.transaction(() => {
+      let grantMicros = starterMicros;
+      if (starterMicros > 0 && this.claimSecret) {
+        const claimHash = starterClaimHash(this.claimSecret, googleSub);
+        const claimed = this.db.prepare('SELECT 1 AS x FROM starter_claims WHERE claim_hash = ?').get(claimHash);
+        if (claimed) {
+          grantMicros = 0;
+        } else {
+          this.db.prepare('INSERT INTO starter_claims (claim_hash, granted_at) VALUES (?, ?)').run(claimHash, now);
+        }
+      }
       const info = this.db
         .prepare('INSERT INTO users (google_sub, email, balance_micros, starter_granted, created_at) VALUES (?, ?, 0, 0, ?)')
         .run(googleSub, email, now);
       const userId = Number(info.lastInsertRowid);
-      if (starterMicros > 0) {
-        this._applyLedger(userId, 'starter_grant', starterMicros, { ref: 'signup' }, now);
+      if (grantMicros > 0) {
+        this._applyLedger(userId, 'starter_grant', grantMicros, { ref: 'signup' }, now);
         this.db.prepare('UPDATE users SET starter_granted = 1 WHERE id = ?').run(userId);
       }
       return this.db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
@@ -206,7 +286,10 @@ class Store {
   }
 
   /** Google Play account-deletion requirement: remove the user and all of
-   *  their ledger, purchase, and reservation rows. */
+   *  their ledger, purchase, and reservation rows. The starter_claims
+   *  tombstone is deliberately NOT removed — it holds only a one-way hash
+   *  (no user data) and exists precisely so deletion can't be used to
+   *  farm the starter grant again. */
   deleteUser(userId) {
     const run = this.db.transaction(() => {
       this.db.prepare('DELETE FROM reservations WHERE user_id = ?').run(userId);
