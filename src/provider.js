@@ -11,7 +11,7 @@ export function buildPrompt(rawText) {
 Task: Extract Bible references (Book, Chapter, Verse) from the transcript.
 
 Rules:
-1. Return ONLY the USFM code(s) in the format BOOK.CHAPTER.VERSE the book is a 3 character code (e.g., JHN.3.16).
+1. Return ONLY the USFM code(s), the book is a 3 character code. Use the format BOOK.CHAPTER.VERSE when a verse is mentioned (e.g., JHN.3.16); when only a chapter is mentioned, return BOOK.CHAPTER instead (e.g., 1KI.18). Never invent a verse number that was not mentioned.
 2. If multiple references are found, return them separated by commas.
 3. If a range of verses is specified in the same chapter return it as a range (e.g., JHN.3.16-18).
 4. If NO valid reference (Book + Chapter at minimum) is found, return 'NONE'.
